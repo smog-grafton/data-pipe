@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>{{ app_name }}</title>
+    <link rel="stylesheet" href="/static/app.css" />
+  </head>
+  <body>
+    <main class="container">
+      <section class="card">
+        <h1>{{ app_name }}</h1>
+        <p class="subtext">
+          Paste a Mobifliks detail page URL. The app validates generated candidates and returns a direct link only when it gets HTTP 200.
+        </p>
+
+        <form id="resolve-form">
+          <label for="url">Mobifliks detail URL</label>
+          <input
+            id="url"
+            name="url"
+            type="url"
+            required
+            placeholder="https://www.mobifliks.com/downloadvideo.php?vid_id=..."
+          />
+
+          <div class="row">
+            <div>
+              <label for="timeout">Timeout (seconds)</label>
+              <input id="timeout" name="timeout" type="number" min="5" max="60" value="20" />
+            </div>
+            <div>
+              <label for="retries">Retries</label>
+              <input id="retries" name="retries" type="number" min="0" max="4" value="1" />
+            </div>
+          </div>
+
+          <button id="submit-btn" type="submit">Resolve Download URL</button>
+        </form>
+
+        <div id="status" class="status hidden"></div>
+        <div id="result" class="result hidden"></div>
+      </section>
+    </main>
+
+    <script>
+      const form = document.getElementById("resolve-form");
+      const resultBox = document.getElementById("result");
+      const statusBox = document.getElementById("status");
+      const submitBtn = document.getElementById("submit-btn");
+
+      function setStatus(message, type) {
+        statusBox.className = `status ${type || ""}`;
+        statusBox.textContent = message;
+        statusBox.classList.remove("hidden");
+      }
+
+      function showResult(html) {
+        resultBox.innerHTML = html;
+        resultBox.classList.remove("hidden");
+      }
+
+      function escapeHtml(input) {
+        return input
+          .replaceAll("&", "&amp;")
+          .replaceAll("<", "&lt;")
+          .replaceAll(">", "&gt;")
+          .replaceAll('"', "&quot;")
+          .replaceAll("'", "&#039;");
+      }
+
+      form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        resultBox.classList.add("hidden");
+        setStatus("Resolving and validating candidates...", "loading");
+        submitBtn.disabled = true;
+
+        const payload = {
+          url: document.getElementById("url").value.trim(),
+          timeout: Number(document.getElementById("timeout").value || 20),
+          retries: Number(document.getElementById("retries").value || 1),
+        };
+
+        try {
+          const response = await fetch("/api/resolve", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          });
+
+          const data = await response.json();
+          if (!response.ok) {
+            const detail = data && data.detail ? String(data.detail) : "Request failed.";
+            setStatus(detail, "error");
+            return;
+          }
+
+          if (data.ok) {
+            setStatus("Validated successfully: 200 OK", "success");
+            showResult(`
+              <h3>Direct download URL</h3>
+              <p><a href="${escapeHtml(data.download_url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(data.download_url)}</a></p>
+              <p class="meta"><strong>Movie:</strong> ${escapeHtml(data.parsed.raw_vid_name)}</p>
+            `);
+          } else {
+            setStatus("No validated download URL found for this detail page.", "error");
+            const checks = (data.checks || [])
+              .map((item) => `<li><code>${escapeHtml(item.url)}</code> &rarr; status: ${item.status ?? "N/A"}</li>`)
+              .join("");
+            showResult(`
+              <h3>Checked candidates</h3>
+              <ul>${checks || "<li>No candidates generated.</li>"}</ul>
+            `);
+          }
+        } catch (error) {
+          setStatus("Network error while contacting resolver API.", "error");
+        } finally {
+          submitBtn.disabled = false;
+        }
+      });
+    </script>
+  </body>
+</html>
