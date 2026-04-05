@@ -3,7 +3,7 @@
 Resolve a Mobifliks movie detail URL into a direct download URL.
 
 The script:
-1) Parses `vid_name` from a `downloadvideo.php` URL.
+1) Parses `vid_name` from a supported `downloadvideo*.php` URL.
 2) Generates ranked candidate direct-download filenames.
 3) Confirms candidates over HTTP and only accepts status 200.
 """
@@ -24,6 +24,7 @@ from typing import Dict, List, Optional, Tuple
 DIRECT_BASE = "https://mobifliks.info/downloadmp4.php?file="
 DEFAULT_TIMEOUT = 20
 DEFAULT_RETRIES = 1
+DETAIL_PATH_PATTERN = re.compile(r"/downloadvideo(?:\d+)?\.php$")
 
 
 @dataclass
@@ -41,8 +42,8 @@ def validate_detail_url(detail_url: str) -> None:
     valid_hosts = {"www.mobifliks.com", "mobifliks.com"}
     if host not in valid_hosts:
         raise ValueError("URL host must be mobifliks.com or www.mobifliks.com.")
-    if not parsed.path.endswith("/downloadvideo.php"):
-        raise ValueError("URL path must end with /downloadvideo.php.")
+    if not DETAIL_PATH_PATTERN.search(parsed.path):
+        raise ValueError("URL path must end with /downloadvideo.php or /downloadvideo<number>.php.")
 
 
 def parse_detail_url(detail_url: str) -> ParsedMovie:
@@ -105,6 +106,23 @@ def clean_token(value: str) -> str:
     return re.sub(r"\s+", " ", value).strip(" -")
 
 
+def title_variants(title: str) -> List[str]:
+    variants = [clean_token(title)]
+    filename_safe = clean_token(re.sub(r'[\\/:*?"<>|]+', "-", title))
+    if filename_safe:
+        variants.append(filename_safe)
+
+    no_punctuation = clean_token(re.sub(r'[\\/:*?"<>|]+', " ", title))
+    if no_punctuation:
+        variants.append(no_punctuation)
+
+    unique: Dict[str, None] = {}
+    for item in variants:
+        if item:
+            unique[item] = None
+    return list(unique.keys())
+
+
 def vj_variants(vj_name: Optional[str]) -> List[str]:
     if not vj_name:
         return []
@@ -116,20 +134,23 @@ def build_candidates(movie: ParsedMovie) -> List[str]:
     folder = movie.language or "luganda"
     names: List[str] = []
     vj_names = vj_variants(movie.vj_name)
+    titles = title_variants(movie.title)
 
     # Most common direct pattern.
-    for vj in vj_names:
-        names.append(f"{movie.title} by {vj} - Mobifliks.com.mp4")
+    for title in titles:
+        for vj in vj_names:
+            names.append(f"{title} by {vj} - Mobifliks.com.mp4")
 
     # Sometimes year appears in direct filename.
     if movie.year:
-        for vj in vj_names:
-            names.append(f"{movie.title} ({movie.year}) by {vj} - Mobifliks.com.mp4")
+        for title in titles:
+            for vj in vj_names:
+                names.append(f"{title} ({movie.year}) by {vj} - Mobifliks.com.mp4")
 
     # Fallback to using raw metadata phrase from detail page.
     if vj_names and movie.year and movie.language:
         names.append(
-            f"{movie.title} ({movie.year} - {vj_names[0]} - {movie.language.capitalize()}) - Mobifliks.com.mp4"
+            f"{titles[0]} ({movie.year} - {vj_names[0]} - {movie.language.capitalize()}) - Mobifliks.com.mp4"
         )
 
     # Deduplicate while preserving order.
@@ -232,7 +253,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Generate and validate Mobifliks direct download URL from movie detail URL."
     )
-    parser.add_argument("url", help="Mobifliks detail URL (downloadvideo.php?...).")
+    parser.add_argument("url", help="Mobifliks detail URL (downloadvideo.php?... or downloadvideo2.php?...).")
     parser.add_argument(
         "--timeout",
         type=int,
