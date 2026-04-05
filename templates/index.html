@@ -11,17 +11,18 @@
       <section class="card">
         <h1>{{ app_name }}</h1>
         <p class="subtext">
-          Paste a Mobifliks detail page URL. The app validates generated candidates and returns a direct link only when it gets HTTP 200.
+          Paste a <strong>Mobifliks</strong>, <strong>Ugaflix</strong>, <strong>Pearl Pix</strong>, or <strong>Namzentertainment</strong> URL.
+          Movies, single TV episodes, and full TV show pages are auto-detected, then validated against direct download links.
         </p>
 
         <form id="resolve-form">
-          <label for="url">Mobifliks detail URL</label>
+          <label for="url">URL (movie, series page, episode page, or supported resolver URL)</label>
           <input
             id="url"
             name="url"
             type="url"
             required
-            placeholder="https://www.mobifliks.com/downloadvideo.php?vid_id=..."
+            placeholder="https://www.mobifliks.com/downloadseries2.php?... or https://www.mobifliks.com/downloadepisode2.php?..."
           />
 
           <div class="row">
@@ -61,12 +62,121 @@
       }
 
       function escapeHtml(input) {
-        return input
+        return String(input ?? "")
           .replaceAll("&", "&amp;")
           .replaceAll("<", "&lt;")
           .replaceAll(">", "&gt;")
           .replaceAll('"', "&quot;")
           .replaceAll("'", "&#039;");
+      }
+
+      function renderCheckDetails(checks) {
+        if (!checks || !checks.length) {
+          return `<p class="meta">No candidates generated.</p>`;
+        }
+
+        const items = checks
+          .map((item) => `<li><code>${escapeHtml(item.url)}</code> &rarr; status: ${item.status ?? "N/A"}</li>`)
+          .join("");
+
+        return `
+          <details class="check-details">
+            <summary>Checked ${checks.length} candidate${checks.length === 1 ? "" : "s"}</summary>
+            <ul class="check-list">${items}</ul>
+          </details>
+        `;
+      }
+
+      function renderMovieResult(data) {
+        const meta = data.parsed.raw_vid_name != null
+          ? data.parsed.raw_vid_name
+          : (data.parsed.prev_url
+            ? (data.parsed.title_from_page || data.parsed.title_from_slug || "Namz")
+            : (data.parsed.title_from_page || data.parsed.title_from_slug || data.parsed.slug || ""));
+
+        if (data.ok) {
+          return `
+            <h3>Direct download URL</h3>
+            <p><a href="${escapeHtml(data.download_url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(data.download_url)}</a></p>
+            <p class="meta"><strong>Movie:</strong> ${escapeHtml(meta)}</p>
+          `;
+        }
+
+        return `
+          <h3>Checked candidates</h3>
+          ${renderCheckDetails(data.checks || [])}
+        `;
+      }
+
+      function renderEpisodeResult(data) {
+        const episode = (data.episodes && data.episodes[0]) || {};
+        const seriesName = data.parsed.raw_series_name || data.parsed.series_name || data.parsed.title || "";
+        const watchLink = episode.watch_url
+          ? `<p><strong>Watch page:</strong> <a href="${escapeHtml(episode.watch_url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(episode.watch_url)}</a></p>`
+          : "";
+        const downloadBlock = episode.download_url
+          ? `<p><strong>Download URL:</strong> <a href="${escapeHtml(episode.download_url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(episode.download_url)}</a></p>`
+          : `<p><strong>Download URL:</strong> <span class="badge badge-muted">Not resolved</span></p>`;
+
+        return `
+          <h3>Episode result</h3>
+          <div class="episode-card">
+            <p><strong>Series:</strong> ${escapeHtml(seriesName)}</p>
+            <p><strong>Episode #:</strong> ${escapeHtml(episode.episode_number ?? data.parsed.episode_number ?? "")}</p>
+            <p><strong>Title:</strong> ${escapeHtml(episode.episode_title ?? data.parsed.episode_title ?? "")}</p>
+            ${watchLink}
+            ${downloadBlock}
+            ${!episode.download_url ? renderCheckDetails(episode.checks || data.checks || []) : ""}
+          </div>
+        `;
+      }
+
+      function renderSeriesResult(data) {
+        const episodes = data.episodes || [];
+        const resolvedCount = episodes.filter((episode) => episode.ok).length;
+        const seriesName = data.parsed.raw_series_name || data.parsed.title || "";
+        const rows = episodes.map((episode) => {
+          const watchCell = episode.watch_url
+            ? `<a href="${escapeHtml(episode.watch_url)}" target="_blank" rel="noopener noreferrer">Watch page</a>`
+            : `<span class="badge badge-muted">N/A</span>`;
+          const downloadCell = episode.download_url
+            ? `<a href="${escapeHtml(episode.download_url)}" target="_blank" rel="noopener noreferrer">Download</a>`
+            : `<span class="badge badge-muted">Not resolved</span>${renderCheckDetails(episode.checks || [])}`;
+          const statusClass = episode.ok ? "badge-success" : "badge-muted";
+          const statusLabel = episode.ok ? `200 OK` : `Failed`;
+
+          return `
+            <tr>
+              <td>${escapeHtml(episode.episode_number ?? "")}</td>
+              <td>${escapeHtml(episode.episode_title ?? "")}</td>
+              <td>${watchCell}</td>
+              <td>${downloadCell}</td>
+              <td><span class="badge ${statusClass}">${escapeHtml(statusLabel)}</span></td>
+            </tr>
+          `;
+        }).join("");
+
+        return `
+          <h3>Series episodes</h3>
+          <p class="meta"><strong>Series:</strong> ${escapeHtml(seriesName)}</p>
+          <p class="meta"><strong>Resolved:</strong> ${resolvedCount} of ${episodes.length} episode${episodes.length === 1 ? "" : "s"}</p>
+          ${episodes.length ? `
+            <div class="table-wrap">
+              <table class="episode-table">
+                <thead>
+                  <tr>
+                    <th>#</th>
+                    <th>Episode</th>
+                    <th>Watch</th>
+                    <th>Download</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody>${rows}</tbody>
+              </table>
+            </div>
+          ` : `<p class="meta">No episodes were discovered on this series page.</p>`}
+        `;
       }
 
       form.addEventListener("submit", async (event) => {
@@ -79,6 +189,7 @@
           url: document.getElementById("url").value.trim(),
           timeout: Number(document.getElementById("timeout").value || 20),
           retries: Number(document.getElementById("retries").value || 1),
+          fetch_page: true,
         };
 
         try {
@@ -95,23 +206,36 @@
             return;
           }
 
+          if (data.content_kind === "series") {
+            const episodes = data.episodes || [];
+            const resolvedCount = episodes.filter((episode) => episode.ok).length;
+            if (data.ok) {
+              setStatus(`Validated ${resolvedCount} of ${episodes.length} episodes.`, "success");
+            } else if (episodes.length) {
+              setStatus(`Discovered ${episodes.length} episodes, but none validated successfully.`, "error");
+            } else {
+              setStatus("No series episodes were discovered on this page.", "error");
+            }
+            showResult(renderSeriesResult(data));
+            return;
+          }
+
+          if (data.content_kind === "episode") {
+            if (data.ok) {
+              setStatus("Validated successfully: 200 OK (episode)", "success");
+            } else {
+              setStatus("No validated download URL found for this episode.", "error");
+            }
+            showResult(renderEpisodeResult(data));
+            return;
+          }
+
           if (data.ok) {
-            setStatus("Validated successfully: 200 OK", "success");
-            showResult(`
-              <h3>Direct download URL</h3>
-              <p><a href="${escapeHtml(data.download_url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(data.download_url)}</a></p>
-              <p class="meta"><strong>Movie:</strong> ${escapeHtml(data.parsed.raw_vid_name)}</p>
-            `);
+            setStatus("Validated successfully: 200 OK (" + (data.resolver || "resolver") + ")", "success");
           } else {
             setStatus("No validated download URL found for this detail page.", "error");
-            const checks = (data.checks || [])
-              .map((item) => `<li><code>${escapeHtml(item.url)}</code> &rarr; status: ${item.status ?? "N/A"}</li>`)
-              .join("");
-            showResult(`
-              <h3>Checked candidates</h3>
-              <ul>${checks || "<li>No candidates generated.</li>"}</ul>
-            `);
           }
+          showResult(renderMovieResult(data));
         } catch (error) {
           setStatus("Network error while contacting resolver API.", "error");
         } finally {

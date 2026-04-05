@@ -113,6 +113,78 @@ button:disabled {
   color: #455571;
 }
 
+.episode-card {
+  display: grid;
+  gap: 10px;
+}
+
+.episode-card p {
+  margin: 0;
+}
+
+.table-wrap {
+  margin-top: 16px;
+  overflow-x: auto;
+}
+
+.episode-table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 700px;
+}
+
+.episode-table th,
+.episode-table td {
+  padding: 12px;
+  border-top: 1px solid #dbe3f0;
+  text-align: left;
+  vertical-align: top;
+}
+
+.episode-table th {
+  color: #455571;
+  font-size: 0.88rem;
+  background: #f1f5fc;
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.badge-success {
+  background: #ebfff0;
+  color: #13542a;
+}
+
+.badge-muted {
+  background: #e9eef8;
+  color: #4a5a75;
+}
+
+.check-details {
+  margin-top: 10px;
+}
+
+.check-details summary {
+  cursor: pointer;
+  color: #254a90;
+  font-weight: 600;
+}
+
+.check-list {
+  margin: 10px 0 0;
+  padding-left: 18px;
+}
+
+.check-list li + li {
+  margin-top: 6px;
+}
+
 .hidden {
   display: none;
 }
